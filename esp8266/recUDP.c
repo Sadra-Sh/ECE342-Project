@@ -36,14 +36,7 @@ void setup() {
 void loop() {
   int packetSize = Udp.parsePacket();  // Corrected Udp object reference
   if (packetSize) {
-    Serial.print("Received packet of size: ");
-    Serial.println(packetSize);
-
     int len = Udp.read(packet, sizeof(packet) - 1); // Prevent overflow
-    if (len > 0) {
-      packet[len] = '\0';  // Null-terminate the received data
-    }
-    Serial.println("Received data: ");
     Serial.println(packet);
   }
 }

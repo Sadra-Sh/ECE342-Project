@@ -191,13 +191,20 @@ int main(void)
 	if (received) {
 	  msg[index] = '\0';  // Null-terminate
 
-	  // Process received value
-	  int receivedValue = atoi(msg);
-
 	  // Echo back (optional)
-	  char response[32];
-	  snprintf(response, sizeof(response), "%d\r\n", receivedValue);
-	  HAL_UART_Transmit(&huart3, (uint8_t *)response, strlen(response), 100);
+	  int x = 0, y = 0;
+	  char *comma_pos = strchr(msg, ',');  // Find comma position
+
+	  if (comma_pos != NULL) {  // If comma exists
+		*comma_pos = '\0';      // Split into two strings
+		x = atoi(msg);          // Parse x (before comma)
+		y = atoi(comma_pos + 1); // Parse y (after comma)
+	  }
+
+	  // Debug output
+	  sprintf(msg, "x:%d, y:%d\r\n", x, y);
+	  HAL_UART_Transmit(&huart3, (uint8_t *)msg, strlen(msg), 100);
+
 	}
 
 	HAL_Delay(10);  // Small delay to prevent bus contention

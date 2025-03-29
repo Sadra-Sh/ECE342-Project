@@ -39,11 +39,9 @@ void setup() {
 }
 
 void loop() {
+  String str = "";
   if (Serial.available() > 0) {
-    String str = Serial.readStringUntil('\n');  // Read input from Serial
-    str.trim();  // Remove any unwanted newlines or spaces
-    Serial.print("Sending UDP Packet: ");
-    Serial.println(str);
+    str = Serial.readStringUntil('\n');  // Read input from Serial
 
     // Send UDP packet
     Udp.beginPacket(carIP, PORT);
@@ -51,10 +49,6 @@ void loop() {
     Udp.endPacket();
 
     Serial.println("UDP Packet Sent!");
-    delay(100);  // Optional: Small delay to prevent flooding
+    delay(50);  // Optional: Small delay to prevent flooding
   }
-  Udp.beginPacket(carIP, PORT);
-    Udp.write(reply, sizeof(reply));  // Convert String to char array
-    Udp.endPacket();
-    delay(900);
 }
