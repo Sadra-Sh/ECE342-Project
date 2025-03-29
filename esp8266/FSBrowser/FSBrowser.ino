@@ -5,138 +5,137 @@ const char* ssid = "SadrasIphone";
 const char* password = "Helloooo";
 ESP8266WebServer server(80);
 
-// Starting image dimensions
-int img_w = 10;
-int img_h = 10;
-bool serverRunning = false;
-unsigned long lastSizeIncrease = 0;
-bool sendFailed = false;
+#define IMG_WIDTH 144
+#define IMG_HEIGHT 174
 
-const char page[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body {text-align:center; font-family:Arial;}
-    img {image-rendering:pixelated; width:256px; height:256px;}
-    .info {margin:20px; font-size:1.2em;}
-  </style>
-</head>
-<body>
-  <h1>ESP8266 Image Size Test</h1>
-  <div class="info">Current size: <span id="size">10x10</span></div>
-  <img id="img" src="/image">
-  <script>
-    setInterval(function() {
-      fetch('/size').then(r=>r.text()).then(s=>{
-        document.getElementById('size').textContent = s;
-        document.getElementById('img').src = '/image?' + Date.now();
-      });
-    }, 500);
-  </script>
-</body>
-</html>
-)rawliteral";
+uint8_t image[IMG_HEIGHT][IMG_WIDTH];
+bool imageReady = false;
+unsigned long lastSerialActivity = 0;
+unsigned long bytesReceived = 0;
 
 void handleRoot() {
-  server.send_P(200, "text/html", page);
+  String html = "<html><head><title>ESP8266 Image Display</title>"
+                "<style>"
+                "body {font-family: Arial; text-align: center;}"
+                "img {image-rendering: pixelated; width: 288px; height: 348px; border: 1px solid #000;}"
+                "#status {color: #666; margin-top: 10px;}"
+                "</style></head>"
+                "<body>"
+                "<h1>ESP8266 Image Display</h1>"
+                "<img id='liveImage' src='/image'/>"
+                "<div id='status'>Waiting for image data...</div>"
+                "<script>"
+                "function updateImage() {"
+                "  fetch('/status').then(r=>r.text()).then(s=>{"
+                "    document.getElementById('status').textContent = s;"
+                "    document.getElementById('liveImage').src = '/image?' + Date.now();"
+                "    setTimeout(updateImage, 1000);"
+                "  });"
+                "}"
+                "updateImage();"
+                "</script>"
+                "</body></html>";
+  server.send(200, "text/html", html);
 }
 
-void handleSize() {
-  server.send(200, "text/plain", String(img_w) + "x" + String(img_h));
-}
-
-void handleImage() {
-  if (sendFailed) {
-    server.send(500, "text/plain", "Image too large");
-    return;
-  }
-
-  // Calculate BMP header
-  uint32_t fileSize = 54 + img_w * img_h;
+void handleImageRequest() {
   uint8_t bmpHeader[54] = {
-    0x42, 0x4D,                         // 'BM'
-    fileSize & 0xFF, (fileSize >> 8) & 0xFF, (fileSize >> 16) & 0xFF, (fileSize >> 24) & 0xFF,
-    0, 0, 0, 0,                         // Reserved
-    54, 0, 0, 0,                        // Pixel data offset
-    40, 0, 0, 0,                        // DIB header size
-    img_w & 0xFF, (img_w >> 8) & 0xFF, 0, 0,  // Width
-    img_h & 0xFF, (img_h >> 8) & 0xFF, 0, 0,  // Height
-    1, 0,                               // Planes
-    8, 0,                               // Bits per pixel
-    0, 0, 0, 0,                         // Compression
-    (img_w * img_h) & 0xFF, ((img_w * img_h) >> 8) & 0xFF, ((img_w * img_h) >> 16) & 0xFF, ((img_w * img_h) >> 24) & 0xFF,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    0x42, 0x4D, 0x36, 0x84, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x36, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0xAE, 0x00, 
+    0x00, 0x00, 0x90, 0x00, 0x00, 0x00, 0x01, 0x00, 0x08, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x84, 0x03, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
+    0x00, 0x00, 0x00, 0x00
   };
-
-  // Try to send image
-  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-  server.send(200, "image/bmp");
-  server.sendContent_P((const char*)bmpHeader, 54);
   
-  uint8_t row[img_w];
-  for (int y = 0; y < img_h; y++) {
-    for (int x = 0; x < img_w; x++) {
-      row[x] = random(256);
-    }
-    server.sendContent((const char*)row, img_w);
+  server.setContentLength(54 + IMG_WIDTH * IMG_HEIGHT);
+  server.send(200, "image/bmp");
+  server.sendContent((const char*)bmpHeader, 54);
+  server.sendContent((const char*)image, IMG_WIDTH * IMG_HEIGHT);
+}
+
+void handleStatus() {
+  String status;
+  if (bytesReceived == 0) {
+    status = "No data received yet";
+  } else if (millis() - lastSerialActivity > 2000) {
+    status = "Last data received " + String((millis() - lastSerialActivity)/1000) + "s ago";
+  } else {
+    status = "Receiving data (" + String(bytesReceived) + " bytes)";
+  }
+  server.send(200, "text/plain", status);
+}
+
+void decodeRLE() {
+  static int x = 0, y = 0;
+  
+  while (Serial.available()) {
+    uint8_t encoded = Serial.read();
+    bytesReceived++;
+    lastSerialActivity = millis();
     
-    // Check if client is still connected
-    if (!server.client().connected()) {
-      sendFailed = true;
-      Serial.println("Client disconnected at size " + String(img_w) + "x" + String(img_h));
-      break;
+    uint8_t pixelValue = (encoded >> 4) * 17;
+    uint8_t runLength = encoded & 0x0F;
+    
+    for (int i = 0; i < runLength; i++) {
+      if (x >= IMG_WIDTH) {
+        x = 0;
+        if (++y >= IMG_HEIGHT) {
+          y = 0;
+          imageReady = true;
+          Serial.println("\nImage fully received!");
+        }
+      }
+      image[y][x++] = pixelValue;
+    }
+    
+    // Print progress every 512 bytes
+    if (bytesReceived % 512 == 0) {
+      Serial.printf("Received %d bytes (%.1f%%)\n", 
+                   bytesReceived, 
+                   100.0 * (y * IMG_WIDTH + x) / (IMG_WIDTH * IMG_HEIGHT));
     }
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);
+  Serial.println("\nStarting RLE Image Receiver");
   
-  randomSeed(analogRead(A0));
+  // Initialize with gradient pattern
+  for(int y=0; y<IMG_HEIGHT; y++) {
+    for(int x=0; x<IMG_WIDTH; x++) {
+      image[y][x] = (x + y) % 256;
+    }
+  }
   
-  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi");
-  
-  unsigned long startTime = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - startTime < 15000) {
+  while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nConnected! IP: " + WiFi.localIP().toString());
-    server.on("/", handleRoot);
-    server.on("/size", handleSize);
-    server.on("/image", handleImage);
-    server.begin();
-    serverRunning = true;
-    Serial.println("HTTP server started");
-    Serial.println("Testing image sizes...");
-    Serial.println("Format: [width]x[height] (pixels)");
-  } else {
-    Serial.println("\nFailed to connect to WiFi");
-    ESP.restart();
-  }
+  Serial.println("\nConnected! IP: " + WiFi.localIP().toString());
+
+  server.on("/", handleRoot);
+  server.on("/image", handleImageRequest);
+  server.on("/status", handleStatus);
+  server.begin();
+  Serial.println("HTTP server started");
+  Serial.println("Waiting for RLE image data...");
 }
 
 void loop() {
-  if (serverRunning && millis() - lastSizeIncrease >= 500 && !sendFailed) {
-    // Increase size
-    img_w += 5;
-    img_h += 5;
-    
-    Serial.print("Testing: ");
-    Serial.print(img_w);
-    Serial.print("x");
-    Serial.println(img_h);
-    
-    lastSizeIncrease = millis();
+  if (Serial.available()) {
+    decodeRLE();
+  }
+  server.handleClient();
+  
+  // Print warning if no data received for 5 seconds
+  if (bytesReceived > 0 && millis() - lastSerialActivity > 5000) {
+    Serial.println("Warning: No serial data for 5 seconds");
+    lastSerialActivity = millis(); // Reset timer
   }
   
-  server.handleClient();
-  delay(2);
+  delay(1);
 }
