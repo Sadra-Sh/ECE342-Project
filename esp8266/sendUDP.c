@@ -13,7 +13,7 @@ IPAddress carIP(172, 20, 10, 2);
 
 WiFiUDP Udp;
 char packet[255];
-char reply[] = "Packet Received";
+char reply[] = "Waiting for Data";
 
 void setup() {
   Serial.begin(115200);
@@ -53,4 +53,8 @@ void loop() {
     Serial.println("UDP Packet Sent!");
     delay(100);  // Optional: Small delay to prevent flooding
   }
+  Udp.beginPacket(carIP, PORT);
+    Udp.write(reply, sizeof(reply));  // Convert String to char array
+    Udp.endPacket();
+    delay(900);
 }
