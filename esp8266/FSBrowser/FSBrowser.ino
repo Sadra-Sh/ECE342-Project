@@ -17,30 +17,30 @@ void setup() {
   Serial.println();
 
   WiFi.begin(STASSID, STAPSK);
-  Serial.print("Connecting to ");
+  // Serial.print("Connecting to ");
   Serial.print(STASSID);
 
   while (WiFi.status() != WL_CONNECTED) {
-    Serial.print('.');
+    // Serial.print('.');
     delay(500);
   }
 
-  Serial.println("\nConnected! IP address: ");
+  // Serial.println("\nConnected! IP address: ");
   Serial.println(WiFi.localIP());
 
   Udp.begin(PORT);
-  Serial.print("Listening on UDP port: ");
+  // Serial.print("Listening on UDP port: ");
   Serial.println(PORT);
 }
 
 void loop() {
-  while (Udp.parsePacket() > 0) {
+  while(Udp.parsePacket() > 0){
     int len = Udp.read(packet, sizeof(packet) - 1);
     if (len > 0) {
-      packet[len] = '\0';  // Null-terminate string
+      packet[len] = '\0'; // Null-terminate string
     }
-  } 
-    
+  }
+  
   if (Serial.available() > 0) {
     String input = Serial.readStringUntil('\n');
     input.trim(); // remove any trailing newline/whitespace

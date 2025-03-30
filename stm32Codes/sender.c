@@ -162,13 +162,13 @@ int main(void)
 	  }
 
 	  // Format and send via UART5 (use snprintf for safety)
-	  int msg_len = snprintf(cmdBuffer, sizeof(cmdBuffer), "%d,%d\n", joystick_x, joystick_y);
+	  int msg_len = snprintf(cmdBuffer, sizeof(cmdBuffer), "%04d,%04d\n", joystick_x, joystick_y);
 	  if (msg_len > 0) {
 	      HAL_UART_Transmit(&huart5, (uint8_t*)cmdBuffer, msg_len, 100); // Send only actual message length
 	  }
 
 	  // Debug output via UART3
-	  msg_len = snprintf(cmdBuffer, sizeof(cmdBuffer), "values x: %d, y: %d\r\n", joystick_x, joystick_y);
+	  msg_len = snprintf(cmdBuffer, sizeof(cmdBuffer), "values x: %04d, y: %04d\r\n", joystick_x, joystick_y);
 	  if (msg_len > 0) {
 	      HAL_UART_Transmit(&huart3, (uint8_t*)cmdBuffer, msg_len, 100); // Send only actual message length
 	  }

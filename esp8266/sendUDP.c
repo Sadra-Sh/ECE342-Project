@@ -7,48 +7,56 @@
 #endif
 
 #define PORT 4210
-
-// Target IP Address
-IPAddress carIP(172, 20, 10, 4);
-
+IPAddress remoteIP(172, 20, 10, 2);
 WiFiUDP Udp;
 char packet[255];
-char reply[] = "Waiting for Data";
+bool readyToReceive = false;
 
 void setup() {
   Serial.begin(115200);
   Serial.println();
-  
+
   WiFi.begin(STASSID, STAPSK);
   Serial.print("Connecting to ");
   Serial.print(STASSID);
-  
+
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print('.');
     delay(500);
   }
-  
-  Serial.println();
-  Serial.print("Connected! IP address: ");
+
+  Serial.println("\nConnected! IP address: ");
   Serial.println(WiFi.localIP());
 
-  // Start UDP
   Udp.begin(PORT);
   Serial.print("Listening on UDP port: ");
   Serial.println(PORT);
 }
 
 void loop() {
-  String str = "";
+  // Check if user sent "ready"
   if (Serial.available() > 0) {
-    str = Serial.readStringUntil('\n');  // Read input from Serial
+    String input = Serial.readStringUntil('\n');
+    input.trim(); // remove any trailing newline/whitespace
+    if (input == "ready") {
+      readyToReceive = true;
+    }
+  }
 
-    // Send UDP packet
-    Udp.beginPacket(carIP, PORT);
-    Udp.write(str.c_str(), str.length());  // Convert String to char array
+  if (readyToReceive) {
+    String str = "ready";
+    Udp.beginPacket(remoteIP, PORT);
+    Udp.write(str.c_str(), str.length());
     Udp.endPacket();
-
-    Serial.println("UDP Packet Sent!");
-    delay(20);  // Optional: Small delay to prevent flooding
+    delay(50);
+    int packetSize = Udp.parsePacket();
+    if (packetSize > 0) {
+      int len = Udp.read(packet, sizeof(packet) - 1);
+      if (len > 0) {
+        packet[len] = '\0'; // Null-terminate string
+        Serial.println(packet);
+      }
+      readyToReceive = false;  // Wait for next "ready"
+    }
   }
 }

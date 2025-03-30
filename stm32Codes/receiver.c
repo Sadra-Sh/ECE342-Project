@@ -21,14 +21,12 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-//#include "ov7670.h"
+
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdbool.h>
-
-
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,12 +44,10 @@
 #define IMG_COLS  174
 #define IMG_ROWS 144
 #define SQUARE_SIZE 4
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
 
 /* USER CODE END PM */
 
@@ -59,40 +55,18 @@
 ADC_HandleTypeDef hadc2;
 ADC_HandleTypeDef hadc3;
 
-DCMI_HandleTypeDef hdcmi;
-DMA_HandleTypeDef hdma_dcmi;
-
-I2C_HandleTypeDef hi2c2;
-
-TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim6;
 
 UART_HandleTypeDef huart5;
 UART_HandleTypeDef huart3;
-DMA_HandleTypeDef hdma_usart3_tx;
 
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
 volatile uint16_t joystick_y = 0; // Stores Y-axis ADC value
-volatile uint16_t joystick_x = 0; // Stores X-axis ADC value
-
-//uint8_t old_snapshot_buff[IMG_ROWS * IMG_COLS];
-uint16_t frame[IMG_COLS * IMG_ROWS];
-
-
-uint8_t tx_buff[sizeof(PREAMBLE) + IMG_ROWS * IMG_COLS + sizeof(SUFFIX)];
-size_t tx_buff_len = 0;
-
-uint8_t bufferSend[(IMG_ROWS * IMG_COLS) + 5];
-
-// This is set in stm32f4xx_it.c in the DCMI_IRQHandler function.
-uint8_t dma_flag = 1;
-
-// Add function definitions for any other functions you add here.
-void print_buf(void);
+volatile uint16_t joystick_x = 0;
 
 uint32_t map_value(uint32_t x, uint32_t in_min, uint32_t in_max, uint32_t out_min, uint32_t out_max) {
   // Function needs to work even if the out_min and out_max are swapped, but it needs to do it so that as x increases the output decreases
@@ -111,33 +85,24 @@ uint32_t map_value(uint32_t x, uint32_t in_min, uint32_t in_max, uint32_t out_mi
   }
 }
 
+char msg[100];
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
-static void MX_I2C2_Init(void);
-static void MX_TIM1_Init(void);
-static void MX_TIM6_Init(void);
-static void MX_USART3_UART_Init(void);
-static void MX_USB_OTG_FS_PCD_Init(void);
-static void MX_DCMI_Init(void);
 static void MX_ADC2_Init(void);
 static void MX_ADC3_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM6_Init(void);
 static void MX_UART5_Init(void);
+static void MX_USART3_UART_Init(void);
+static void MX_USB_OTG_FS_PCD_Init(void);
 /* USER CODE BEGIN PFP */
-void print_buf();
-void generate_checkerboard();
-HAL_StatusTypeDef uart_send_bin3(uint8_t * buff, unsigned int len);
 
-
-HAL_StatusTypeDef print_msg(char * msg);
-
-HAL_StatusTypeDef uart_send_bin(uint8_t * buff, unsigned int len);
-char msg[100];
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -174,99 +139,86 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_I2C2_Init();
-  MX_TIM1_Init();
-  MX_TIM6_Init();
-  MX_USART3_UART_Init();
-  MX_USB_OTG_FS_PCD_Init();
-  MX_DCMI_Init();
   MX_ADC2_Init();
   MX_ADC3_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
+  MX_TIM6_Init();
   MX_UART5_Init();
+  MX_USART3_UART_Init();
+  MX_USB_OTG_FS_PCD_Init();
   /* USER CODE BEGIN 2 */
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-
-  // Set 50% duty cycle for TIM2
-  uint32_t tim2_50_percent = htim2.Init.Period / 2;
-  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 0);
-
-  // Start PWM generation for TIM3 (DC Motors)
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); // Channel 1 for DC Motor 1
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2); // Channel 2 for DC Motor 2
-
-  // Set 50% duty cycle for TIM3
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0); // DC Motor 1
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0); // DC Motor 2
-
-
-
-  int len = sprintf(msg, "Starting\r\n");
-//  print_msg(msg);
-
   char msg2[4];
   char cmdBuffer[255];
+  int len = 0;
+  uint8_t byte;
+  int x = 0;
+  int y = 0;
 
-
-/*
-  ov7670_init();
-
-  ov7670_capture(frame);
- */
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-
+//  HAL_UART_Transmit(&huart5, (uint8_t*)"ready\n", 6, 100);
+//  while(byte != '\n'){
+//	  HAL_StatusTypeDef status = HAL_UART_Receive(&huart5, (uint8_t*)&byte, 1, 10000);
+//	  if (status == HAL_OK)
+//  		  HAL_UART_Transmit(&huart3, (uint8_t*)&byte, 1, 100);
+//
+////  		  byte = 0;
+////  		  HAL_Delay(100);
+////  		  HAL_UART_Transmit(&huart5, (uint8_t*)"ready\n", 6, 100);
+//
+//  	}
   while (1)
   {
-	  memset(cmdBuffer, 0, sizeof(cmdBuffer));
+    /* USER CODE END WHILE */
+	  memset(cmdBuffer, 0, sizeof(cmdBuffer));  // Clear buffer
 
-	  // Send ready signal
 	  HAL_UART_Transmit(&huart5, (uint8_t*)"ready\n", 6, 100);
 	  HAL_Delay(50);
 
-	  uint8_t byte;
-	  int index = 0;
-	  bool received = false;
-	  int x = 2000, y = 2000; // Initialize to 0
+	  int x = 2000, y = 2000; // Default values
 
-	  HAL_StatusTypeDef status = HAL_UART_Receive(&huart5, (uint8_t*)cmdBuffer, sizeof(cmdBuffer)-1, 500);
-	  HAL_UART_Transmit(&huart3, (uint8_t*)cmdBuffer, sizeof(cmdBuffer), 500);
+	  HAL_StatusTypeDef status = HAL_UART_Receive(&huart5, (uint8_t*)&byte, 1, 10000);
+	  while(byte != '\n'){
+	  	  HAL_StatusTypeDef status = HAL_UART_Receive(&huart5, (uint8_t*)&byte, 1, 10000);
+	  	  if (status == HAL_OK)
+	    		  HAL_UART_Transmit(&huart3, (uint8_t*)&byte, 1, 100);
+	  
+	  
+	    	}
+
+
+	  HAL_StatusTypeDef status = HAL_UART_Transmit(&huart3, (uint8_t*)cmdBuffer, strlen(cmdBuffer), 500); // Send only valid data
 
 	  if (status == HAL_OK)
 	  {
-		  // Parse received data
-		  int x = 2000, y = 2000;  // Default values
+		   cmdBuffer[strcspn(cmdBuffer, "\n")] = '\0'; // Trim newlines (handles both \r and \n)
+	      char* comma = strchr(cmdBuffer, ',');
+	      char* newline = strchr(cmdBuffer, '\n');
 
-		  // Find comma and newline
-		  char* comma = strchr(cmdBuffer, ',');
-		  char* newline = strchr(cmdBuffer, '\n');
+	      if (comma && (newline == NULL || newline > comma))
+	      {
+	          *comma = '\0';  // Null-terminate the X portion
+	          x = atoi(cmdBuffer);
+	          y = atoi(comma + 1);
+	      }
 
-		  if (comma && newline && (newline > comma))
-		  {
-			  // Parse X value (before comma)
-			  *comma = '\0';  // Null-terminate the X portion
-			  x = atoi(cmdBuffer);
+	      // Debug output
+	      sprintf(msg, "x:%d, y:%d\r\n", x, y);
+	      HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
 
-			  // Parse Y value (after comma)
-			  y = atoi(comma + 1);
-		  }
-
-		  // Debug output
-		  sprintf(msg, "x:%d, y:%d\r\n", x, y);
-		  HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
-
-		  joystick_y = (uint16_t)y;
-		  joystick_x = (uint16_t)x;
+	      joystick_y = (uint16_t)y;
+	      joystick_x = (uint16_t)x;
 	  }
-	  else{
-		  joystick_y = 2000;
-		  joystick_x = 2000;
+	  else
+	  {
+	      joystick_y = 2000;
+	      joystick_x = 2000;
 	  }
+
 
 	 if (joystick_y > 2020) {
 	   // Joystick pushed forward
@@ -279,7 +231,7 @@ int main(void)
 	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, driving_pwm_duty); // DRIVE MOTOR ENABLE
 
 	   len = sprintf(msg, "Positive drive_pwm: %u | ", driving_pwm_duty);
-//	   print_msg(msg);
+  //	   print_msg(msg);
 
 	 }
 	 else if (joystick_y < 1900) {
@@ -296,7 +248,7 @@ int main(void)
 	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, driving_pwm_duty); // DRIVE MOTOR ENABLE
 
 	   len = sprintf(msg, "Negative drive_pwm: %u\r\n", driving_pwm_duty);
-//	   print_msg(msg);
+  //	   print_msg(msg);
 	 }
 	 else {
 	   // Joystick in neutral position
@@ -316,7 +268,7 @@ int main(void)
 	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, turning_pwm_duty); // TURN MOTOR ENABLE
 
 	   len = sprintf(msg, "Positive TURN_PWM: %u | ", turning_pwm_duty);
-//	   print_msg(msg);
+  //	   print_msg(msg);
 
 	 }
 	 else if (joystick_x < 1900){
@@ -331,7 +283,7 @@ int main(void)
 	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, turning_pwm_duty); // TURN MOTOR ENABLE
 
 	   len = sprintf(msg, "Negative TURN_PWM: %u\r\n", turning_pwm_duty);
-//	   print_msg(msg);
+  //	   print_msg(msg);
 	 }
 	 else {
 	   // Joystick in neutral position
@@ -348,30 +300,8 @@ int main(void)
 	 __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, servo_pwm_duty);
 
 
-
-	 // Print Joystick-y ADC value via UART
-	 // len = sprintf(msg, "ADC: %u\r\n", joystick_y);
-	 // print_msg(msg);
-
-	 // HAL_Delay(1000); // Adjust delay to control sampling rate
-    /* USER CODE END WHILE */
-
     /* USER CODE BEGIN 3 */
-   }
-   /* while(1){
-	 uint32_t joystick_y[2];
-	 char hello[1024];
-	 HAL_UART_Receive_DMA(&huart5, (uint8_t *)&hello, 5);
-
-	 //print adc value [0]
-	 // turn on LED2
-	 HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
-	 len = sprintf(msg, "ADC0: %s\r\n", hello);
-	 // print_msg("hello");
-   } */
-
-
-
+  }
   /* USER CODE END 3 */
 }
 
@@ -526,142 +456,6 @@ static void MX_ADC3_Init(void)
 }
 
 /**
-  * @brief DCMI Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_DCMI_Init(void)
-{
-
-  /* USER CODE BEGIN DCMI_Init 0 */
-
-  /* USER CODE END DCMI_Init 0 */
-
-  /* USER CODE BEGIN DCMI_Init 1 */
-
-  /* USER CODE END DCMI_Init 1 */
-  hdcmi.Instance = DCMI;
-  hdcmi.Init.SynchroMode = DCMI_SYNCHRO_HARDWARE;
-  hdcmi.Init.PCKPolarity = DCMI_PCKPOLARITY_RISING;
-  hdcmi.Init.VSPolarity = DCMI_VSPOLARITY_HIGH;
-  hdcmi.Init.HSPolarity = DCMI_HSPOLARITY_LOW;
-  hdcmi.Init.CaptureRate = DCMI_CR_ALL_FRAME;
-  hdcmi.Init.ExtendedDataMode = DCMI_EXTEND_DATA_8B;
-  hdcmi.Init.JPEGMode = DCMI_JPEG_DISABLE;
-  hdcmi.Init.ByteSelectMode = DCMI_BSM_ALL;
-  hdcmi.Init.ByteSelectStart = DCMI_OEBS_ODD;
-  hdcmi.Init.LineSelectMode = DCMI_LSM_ALL;
-  hdcmi.Init.LineSelectStart = DCMI_OELS_ODD;
-  if (HAL_DCMI_Init(&hdcmi) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN DCMI_Init 2 */
-
-  /* USER CODE END DCMI_Init 2 */
-
-}
-
-/**
-  * @brief I2C2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_I2C2_Init(void)
-{
-
-  /* USER CODE BEGIN I2C2_Init 0 */
-
-  /* USER CODE END I2C2_Init 0 */
-
-  /* USER CODE BEGIN I2C2_Init 1 */
-
-  /* USER CODE END I2C2_Init 1 */
-  hi2c2.Instance = I2C2;
-  hi2c2.Init.ClockSpeed = 100000;
-  hi2c2.Init.DutyCycle = I2C_DUTYCYCLE_2;
-  hi2c2.Init.OwnAddress1 = 0;
-  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c2.Init.OwnAddress2 = 0;
-  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN I2C2_Init 2 */
-
-  /* USER CODE END I2C2_Init 2 */
-
-}
-
-/**
-  * @brief TIM1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM1_Init(void)
-{
-
-  /* USER CODE BEGIN TIM1_Init 0 */
-
-  /* USER CODE END TIM1_Init 0 */
-
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
-  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
-
-  /* USER CODE BEGIN TIM1_Init 1 */
-
-  /* USER CODE END TIM1_Init 1 */
-  htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 0;
-  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 14;
-  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim1.Init.RepetitionCounter = 0;
-  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 10;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
-  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
-  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
-  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
-  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-  sBreakDeadTimeConfig.DeadTime = 0;
-  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
-  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
-  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
-  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM1_Init 2 */
-
-  /* USER CODE END TIM1_Init 2 */
-  HAL_TIM_MspPostInit(&htim1);
-
-}
-
-/**
   * @brief TIM2 Initialization Function
   * @param None
   * @retval None
@@ -682,9 +476,9 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 1679999;
+  htim2.Init.Period = 4294967295;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
@@ -731,9 +525,9 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 4199;
+  htim3.Init.Period = 65535;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
   {
     Error_Handler();
@@ -850,7 +644,7 @@ static void MX_USART3_UART_Init(void)
 
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 2620000;
+  huart3.Init.BaudRate = 115200;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;
@@ -903,26 +697,6 @@ static void MX_USB_OTG_FS_PCD_Init(void)
 }
 
 /**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
-  __HAL_RCC_DMA2_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Stream3_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
-  /* DMA2_Stream1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA2_Stream1_IRQn);
-
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -930,16 +704,16 @@ static void MX_DMA_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+
+  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOG_CLK_ENABLE();
 
@@ -985,8 +759,9 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(USB_OverCurrent_GPIO_Port, &GPIO_InitStruct);
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
