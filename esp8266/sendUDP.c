@@ -49,6 +49,6 @@ void loop() {
     Udp.endPacket();
 
     Serial.println("UDP Packet Sent!");
-    delay(50);  // Optional: Small delay to prevent flooding
+    delay(20);  // Optional: Small delay to prevent flooding
   }
 }

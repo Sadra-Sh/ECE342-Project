@@ -1,4 +1,4 @@
-/* USER CODE BEGIN Header */
+* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : main.c
@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-//#include "ov7670.h"
+#include "ov7670.h"
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
@@ -56,6 +56,7 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+
 ADC_HandleTypeDef hadc2;
 ADC_HandleTypeDef hadc3;
 
@@ -71,6 +72,7 @@ TIM_HandleTypeDef htim6;
 
 UART_HandleTypeDef huart5;
 UART_HandleTypeDef huart3;
+DMA_HandleTypeDef hdma_uart5_tx;
 DMA_HandleTypeDef hdma_usart3_tx;
 
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
@@ -120,6 +122,7 @@ static void MX_DMA_Init(void);
 static void MX_I2C2_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM6_Init(void);
+static void MX_UART5_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_USB_OTG_FS_PCD_Init(void);
 static void MX_DCMI_Init(void);
@@ -127,7 +130,6 @@ static void MX_ADC2_Init(void);
 static void MX_ADC3_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
-static void MX_UART5_Init(void);
 /* USER CODE BEGIN PFP */
 void print_buf();
 void generate_checkerboard();
@@ -178,6 +180,7 @@ int main(void)
   MX_I2C2_Init();
   MX_TIM1_Init();
   MX_TIM6_Init();
+  MX_UART5_Init();
   MX_USART3_UART_Init();
   MX_USB_OTG_FS_PCD_Init();
   MX_DCMI_Init();
@@ -185,7 +188,6 @@ int main(void)
   MX_ADC3_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
-  MX_UART5_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
@@ -204,10 +206,10 @@ int main(void)
 
 
   int len = sprintf(msg, "Starting\r\n");
-//  print_msg(msg);
+  print_msg(msg);
 
   char msg2[4];
-  char cmdBuffer[255];
+  char cmdBuffer[20];
 
 
 /*
@@ -220,159 +222,135 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-
   while (1)
-  {
-	  memset(cmdBuffer, 0, sizeof(cmdBuffer));
+  {    
+    HAL_ADC_Start(&hadc2);
+    if (HAL_ADC_PollForConversion(&hadc2, 10) == HAL_OK) {
+        joystick_x = HAL_ADC_GetValue(&hadc2);
+    }
+    
+    HAL_ADC_Start(&hadc3);
+    if (HAL_ADC_PollForConversion(&hadc3, 10) == HAL_OK) {
+        joystick_y = HAL_ADC_GetValue(&hadc3);
+    }
 
-	  // Send ready signal
-	  HAL_UART_Transmit(&huart5, (uint8_t*)"ready\n", 6, 100);
-	  HAL_Delay(50);
+	 joystick_y = HAL_ADC_GetValue(&hadc3);
+	 joystick_x = HAL_ADC_GetValue(&hadc2);
 
-	  uint8_t byte;
-	  int index = 0;
-	  bool received = false;
-	  int x = 2000, y = 2000; // Initialize to 0
+     sprintf(cmdBuffer, 20, "%d,%d\n", joystick_x, joystick_y);
+    
+    // Transmit only the actual message length (not the whole buffer)
+    HAL_UART_Transmit(&huart5, (uint8_t*)cmdBuffer, len, 1000);
+    sprintf(cmdBuffer, 20, "%d,%d\r\n", joystick_x, joystick_y);
 
-	  HAL_StatusTypeDef status = HAL_UART_Receive(&huart5, (uint8_t*)cmdBuffer, sizeof(cmdBuffer)-1, 500);
-	  HAL_UART_Transmit(&huart3, (uint8_t*)cmdBuffer, sizeof(cmdBuffer), 500);
+    HAL_UART_Transmit(&huart3, (uint8_t*)cmdBuffer, len, 1000);
+    HAL_Delay(50);
 
-	  if (status == HAL_OK)
-	  {
-		  // Parse received data
-		  int x = 2000, y = 2000;  // Default values
+  }
+   /* USER CODE END 3 */
+  /* USER CODE END 3 */
+}
 
-		  // Find comma and newline
-		  char* comma = strchr(cmdBuffer, ',');
-		  char* newline = strchr(cmdBuffer, '\n');
 
-		  if (comma && newline && (newline > comma))
-		  {
-			  // Parse X value (before comma)
-			  *comma = '\0';  // Null-terminate the X portion
-			  x = atoi(cmdBuffer);
 
-			  // Parse Y value (after comma)
-			  y = atoi(comma + 1);
+void print_buf() {
+
+  // Create a new buffer from the snapshot_buffer than the DCMI copied the 16-bit pixel values into.
+  uint8_t *buffer = (uint8_t *) frame;
+  tx_buff_len = 0;
+  // Add the START preamble message to the start of the buffer for the serial-monitor program.
+  for (int i = 0; i < sizeof(PREAMBLE) - 1 ; i++) {
+    tx_buff[tx_buff_len++] = PREAMBLE[i];
+  }
+
+
+  // Write code to copy every other byte from the main frame buffer to
+  // our temporary buffer (this converts the image to grey scale)
+  // Convert image to grayscale and apply RLE
+  uint8_t packed_buff[(IMG_COLS * IMG_ROWS)/2];
+  for (int i = 0; i < (IMG_COLS * IMG_ROWS); i += 2) {
+	  packed_buff[i/2] = ((frame[i] >> 8) & 0xF0) | ((frame[i+1] >> 12) & 0xF);
+  }
+
+
+  // Copy RLE-compressed data to tx_buff
+  int i = 0;
+  while (i < (IMG_ROWS * IMG_COLS)) { // 16 pixels
+	  int count = 1;
+	  uint8_t cur_val;
+
+	  // Get the current pixel value
+	  if (i % 2 == 0) {
+		  cur_val = FIRST_PIX(packed_buff[i / 2]);
+	  } else {
+		  cur_val = SECOND_PIX(packed_buff[i / 2]);
+	  }
+
+	  // Find how many times `cur_val` repeats
+	  while ((i + 1) < (IMG_ROWS * IMG_COLS) && count < 15 ) { // Check next pixel
+		  uint8_t next_val;
+		  if ((i + 1) % 2 == 0) {
+			  next_val = FIRST_PIX(packed_buff[(i + 1) / 2]);
+		  } else {
+			  next_val = SECOND_PIX(packed_buff[(i + 1) / 2]);
 		  }
 
-		  // Debug output
-		  sprintf(msg, "x:%d, y:%d\r\n", x, y);
-		  HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
+		  if (next_val != cur_val) break; // Stop if different
 
-		  joystick_y = (uint16_t)y;
-		  joystick_x = (uint16_t)x;
-	  }
-	  else{
-		  joystick_y = 2000;
-		  joystick_x = 2000;
+		  count++; // Increase repetition count
+		  i++; // Move to next pixel
 	  }
 
-	 if (joystick_y > 2020) {
-	   // Joystick pushed forward
+	  // Store encoded value
+	  tx_buff[tx_buff_len++] = (cur_val << 4) | (count & 0xF);
+	  i++; // Move to the next pixel
+  }
+  //implement RLE
 
-	   // Set DRIVING MOTORS direction: Forward
-	   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_SET);  // IN1A = 1
+  // Load the END suffix message to the end of the message.
+  for (int i = 0; i < sizeof(SUFFIX) - 1; i++) {
+    tx_buff[tx_buff_len++] = SUFFIX[i];
+  }
 
-	   uint32_t driving_pwm_duty = map_value(joystick_y, 2000, 4096, 0, htim3.Init.Period);
+//  for (int i = 0; i < tx_buff_len; i++) {
+//	  sprintf(msg, "%02x\r\n", tx_buff[i]);  // Print as hex (adjust format if needed)
+//	  print_msg(msg);
+//  }
 
-	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, driving_pwm_duty); // DRIVE MOTOR ENABLE
+  // Once the data is copied into the buffer, call the function to send it via UART.
+  uart_send_bin(tx_buff, tx_buff_len);
+  uart_send_bin3(tx_buff, tx_buff_len);
 
-	   len = sprintf(msg, "Positive drive_pwm: %u | ", driving_pwm_duty);
-//	   print_msg(msg);
 
-	 }
-	 else if (joystick_y < 1900) {
-	   // Joystick pushed backward
+}
 
-	   // Set DRIVING MOTORS direction: Backward
-	   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_RESET);  // IN1A = 0
-
-	   uint32_t driving_pwm_duty = map_value(joystick_y, 0, 2000, htim3.Init.Period, 0);
-	   // uint32_t pwm_duty = htim3.Init.Period - 1;
-
-	   HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_SET);
-
-	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, driving_pwm_duty); // DRIVE MOTOR ENABLE
-
-	   len = sprintf(msg, "Negative drive_pwm: %u\r\n", driving_pwm_duty);
-//	   print_msg(msg);
-	 }
-	 else {
-	   // Joystick in neutral position
-	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0); // Motor 1 stop
-	 }
-
-	 ////////////////////////////////////////////////////////////////// JOYSTICK-X Implementation:
-	 if (joystick_x > 2020) {
-	   // Joystick pushed forward
-	   // SET TURNING MOTORS direction: RIGHT???
-	   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_12, GPIO_PIN_RESET); // IN2A = 0
-
-	   uint32_t turning_pwm_duty = map_value(joystick_x, 2000, 4096, 0, htim3.Init.Period);
-	   // uint32_t pwm_duty = htim3.Init.Period - 1;
-	   // HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
-
-	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, turning_pwm_duty); // TURN MOTOR ENABLE
-
-	   len = sprintf(msg, "Positive TURN_PWM: %u | ", turning_pwm_duty);
-//	   print_msg(msg);
-
-	 }
-	 else if (joystick_x < 1900){
-	   // Joystick pushed backward
-	   // SET TURNING MOTORS direction: LEFT???
-	   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_12, GPIO_PIN_SET); // IN2A = 1
-
-	   uint32_t turning_pwm_duty = map_value(joystick_x, 0, 2000, htim3.Init.Period, 0);
-	   // uint32_t pwm_duty = htim3.Init.Period - 1;
-	   // HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
-
-	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, turning_pwm_duty); // TURN MOTOR ENABLE
-
-	   len = sprintf(msg, "Negative TURN_PWM: %u\r\n", turning_pwm_duty);
-//	   print_msg(msg);
-	 }
-	 else {
-	   // Joystick in neutral position
-	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0); // STOP TURNING
-	 }
+void generate_checkerboard() {
+    for (int y = 0; y < IMG_ROWS; y++) {
+        for (int x = 0; x < IMG_COLS; x++) {
+            // Determine if the pixel belongs to a "white" or "black" square
+            int square_x = x / SQUARE_SIZE;
+            int square_y = y / SQUARE_SIZE;
+            if ((square_x + square_y) % 2 == 0) {
+                frame[y * IMG_COLS + x] = 0xFFFF;  // White
+            } else {
+                frame[y * IMG_COLS + x] = 0x0000;  // Black
+            }
+        }
+    }
+}
 
 
 
-	 /////////////////////////////////////////////////// Use PWM 2 to control a 9g Arduino servo motor
-	 // Map joystick value to PWM duty cycle for the servo motor
-	 HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+HAL_StatusTypeDef print_msg(char * msg) {
+  return HAL_UART_Transmit_DMA(&huart3, (uint8_t *)msg, strlen(msg));
+}
 
-	 uint32_t servo_pwm_duty = map_value(joystick_y, 0, 4095, htim2.Init.Period/20, 2*htim2.Init.Period/20); // Assuming 500-2500us pulse width for 0-180 degrees
-	 __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, servo_pwm_duty);
+HAL_StatusTypeDef uart_send_bin(uint8_t * buff, unsigned int len) {
+  return HAL_UART_Transmit_DMA(&huart5, (uint8_t *)buff, len);
+}
 
-
-
-	 // Print Joystick-y ADC value via UART
-	 // len = sprintf(msg, "ADC: %u\r\n", joystick_y);
-	 // print_msg(msg);
-
-	 // HAL_Delay(1000); // Adjust delay to control sampling rate
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-   }
-   /* while(1){
-	 uint32_t joystick_y[2];
-	 char hello[1024];
-	 HAL_UART_Receive_DMA(&huart5, (uint8_t *)&hello, 5);
-
-	 //print adc value [0]
-	 // turn on LED2
-	 HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
-	 len = sprintf(msg, "ADC0: %s\r\n", hello);
-	 // print_msg("hello");
-   } */
-
-
-
-  /* USER CODE END 3 */
+HAL_StatusTypeDef uart_send_bin3(uint8_t * buff, unsigned int len) {
+  return HAL_UART_Transmit_DMA(&huart3, (uint8_t *)buff, len);
 }
 
 /**
@@ -850,7 +828,7 @@ static void MX_USART3_UART_Init(void)
 
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 2620000;
+  huart3.Init.BaudRate = 115200;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;
@@ -916,6 +894,9 @@ static void MX_DMA_Init(void)
   /* DMA1_Stream3_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
+  /* DMA1_Stream7_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream7_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream7_IRQn);
   /* DMA2_Stream1_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA2_Stream1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA2_Stream1_IRQn);

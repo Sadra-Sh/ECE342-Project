@@ -7,7 +7,7 @@
 #endif
 
 #define PORT 4210
-
+IPAddress remoteIP(172, 20, 10, 2);
 WiFiUDP Udp;
 char packet[255];
 bool readyToReceive = false;
@@ -44,6 +44,12 @@ void loop() {
   }
 
   if (readyToReceive) {
+    String str = "ready";
+    Udp.beginPacket(remoteIP, PORT);
+    Udp.write(str.c_str(), str.length());
+    Udp.endPacket();
+    delay(50);
+    
     int packetSize = Udp.parsePacket();
     if (packetSize > 0) {
       int len = Udp.read(packet, sizeof(packet) - 1);
