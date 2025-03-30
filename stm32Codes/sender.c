@@ -1,4 +1,4 @@
-* USER CODE BEGIN Header */
+/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : main.c
@@ -21,13 +21,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "ov7670.h"
-#include <string.h>
-#include <stdio.h>
-#include <math.h>
-#include <stdint.h>
-#include <stdbool.h>
-
 
 /* USER CODE END Includes */
 
@@ -38,63 +31,30 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define PREAMBLE "\r\n!START!\r\n"
-#define DELTA_PREAMBLE "\r\n!DELTA!\r\n"
-#define SUFFIX "!END!\r\n"
-#define FIRST_PIX(value) ((value >> 4) & 0xF)
-#define SECOND_PIX(value) (value & 0xF)
-#define IMG_COLS  174
-#define IMG_ROWS 144
-#define SQUARE_SIZE 4
 
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
 
-
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-
 ADC_HandleTypeDef hadc2;
 ADC_HandleTypeDef hadc3;
 
-DCMI_HandleTypeDef hdcmi;
-DMA_HandleTypeDef hdma_dcmi;
-
-I2C_HandleTypeDef hi2c2;
-
-TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim6;
 
 UART_HandleTypeDef huart5;
 UART_HandleTypeDef huart3;
-DMA_HandleTypeDef hdma_uart5_tx;
-DMA_HandleTypeDef hdma_usart3_tx;
 
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
 volatile uint16_t joystick_y = 0; // Stores Y-axis ADC value
-volatile uint16_t joystick_x = 0; // Stores X-axis ADC value
-
-//uint8_t old_snapshot_buff[IMG_ROWS * IMG_COLS];
-uint16_t frame[IMG_COLS * IMG_ROWS];
-
-
-uint8_t tx_buff[sizeof(PREAMBLE) + IMG_ROWS * IMG_COLS + sizeof(SUFFIX)];
-size_t tx_buff_len = 0;
-
-uint8_t bufferSend[(IMG_ROWS * IMG_COLS) + 5];
-
-// This is set in stm32f4xx_it.c in the DCMI_IRQHandler function.
-uint8_t dma_flag = 1;
-
-// Add function definitions for any other functions you add here.
-void print_buf(void);
+volatile uint16_t joystick_x = 0;
 
 uint32_t map_value(uint32_t x, uint32_t in_min, uint32_t in_max, uint32_t out_min, uint32_t out_max) {
   // Function needs to work even if the out_min and out_max are swapped, but it needs to do it so that as x increases the output decreases
@@ -113,33 +73,24 @@ uint32_t map_value(uint32_t x, uint32_t in_min, uint32_t in_max, uint32_t out_mi
   }
 }
 
+char msg[100];
+
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
-static void MX_I2C2_Init(void);
-static void MX_TIM1_Init(void);
-static void MX_TIM6_Init(void);
-static void MX_UART5_Init(void);
-static void MX_USART3_UART_Init(void);
-static void MX_USB_OTG_FS_PCD_Init(void);
-static void MX_DCMI_Init(void);
 static void MX_ADC2_Init(void);
 static void MX_ADC3_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM6_Init(void);
+static void MX_UART5_Init(void);
+static void MX_USART3_UART_Init(void);
+static void MX_USB_OTG_FS_PCD_Init(void);
 /* USER CODE BEGIN PFP */
-void print_buf();
-void generate_checkerboard();
-HAL_StatusTypeDef uart_send_bin3(uint8_t * buff, unsigned int len);
 
-
-HAL_StatusTypeDef print_msg(char * msg);
-
-HAL_StatusTypeDef uart_send_bin(uint8_t * buff, unsigned int len);
-char msg[100];
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -176,181 +127,56 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_I2C2_Init();
-  MX_TIM1_Init();
-  MX_TIM6_Init();
-  MX_UART5_Init();
-  MX_USART3_UART_Init();
-  MX_USB_OTG_FS_PCD_Init();
-  MX_DCMI_Init();
   MX_ADC2_Init();
   MX_ADC3_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
+  MX_TIM6_Init();
+  MX_UART5_Init();
+  MX_USART3_UART_Init();
+  MX_USB_OTG_FS_PCD_Init();
   /* USER CODE BEGIN 2 */
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-
-  // Set 50% duty cycle for TIM2
-  uint32_t tim2_50_percent = htim2.Init.Period / 2;
-  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 0);
-
-  // Start PWM generation for TIM3 (DC Motors)
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); // Channel 1 for DC Motor 1
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2); // Channel 2 for DC Motor 2
-
-  // Set 50% duty cycle for TIM3
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0); // DC Motor 1
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0); // DC Motor 2
-
-
-
-  int len = sprintf(msg, "Starting\r\n");
-  print_msg(msg);
-
   char msg2[4];
-  char cmdBuffer[20];
-
-
-/*
-  ov7670_init();
-
-  ov7670_capture(frame);
- */
+  char cmdBuffer[255];
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
-  {    
-    HAL_ADC_Start(&hadc2);
-    if (HAL_ADC_PollForConversion(&hadc2, 10) == HAL_OK) {
-        joystick_x = HAL_ADC_GetValue(&hadc2);
-    }
-    
-    HAL_ADC_Start(&hadc3);
-    if (HAL_ADC_PollForConversion(&hadc3, 10) == HAL_OK) {
-        joystick_y = HAL_ADC_GetValue(&hadc3);
-    }
-
-	 joystick_y = HAL_ADC_GetValue(&hadc3);
-	 joystick_x = HAL_ADC_GetValue(&hadc2);
-
-     sprintf(cmdBuffer, 20, "%d,%d\n", joystick_x, joystick_y);
-    
-    // Transmit only the actual message length (not the whole buffer)
-    HAL_UART_Transmit(&huart5, (uint8_t*)cmdBuffer, len, 1000);
-    sprintf(cmdBuffer, 20, "%d,%d\r\n", joystick_x, joystick_y);
-
-    HAL_UART_Transmit(&huart3, (uint8_t*)cmdBuffer, len, 1000);
-    HAL_Delay(50);
-
-  }
-   /* USER CODE END 3 */
-  /* USER CODE END 3 */
-}
-
-
-
-void print_buf() {
-
-  // Create a new buffer from the snapshot_buffer than the DCMI copied the 16-bit pixel values into.
-  uint8_t *buffer = (uint8_t *) frame;
-  tx_buff_len = 0;
-  // Add the START preamble message to the start of the buffer for the serial-monitor program.
-  for (int i = 0; i < sizeof(PREAMBLE) - 1 ; i++) {
-    tx_buff[tx_buff_len++] = PREAMBLE[i];
-  }
-
-
-  // Write code to copy every other byte from the main frame buffer to
-  // our temporary buffer (this converts the image to grey scale)
-  // Convert image to grayscale and apply RLE
-  uint8_t packed_buff[(IMG_COLS * IMG_ROWS)/2];
-  for (int i = 0; i < (IMG_COLS * IMG_ROWS); i += 2) {
-	  packed_buff[i/2] = ((frame[i] >> 8) & 0xF0) | ((frame[i+1] >> 12) & 0xF);
-  }
-
-
-  // Copy RLE-compressed data to tx_buff
-  int i = 0;
-  while (i < (IMG_ROWS * IMG_COLS)) { // 16 pixels
-	  int count = 1;
-	  uint8_t cur_val;
-
-	  // Get the current pixel value
-	  if (i % 2 == 0) {
-		  cur_val = FIRST_PIX(packed_buff[i / 2]);
+  {
+    /* USER CODE END WHILE */
+	  // Read ADC values
+	  HAL_ADC_Start(&hadc2);
+	  if (HAL_ADC_PollForConversion(&hadc2, 10) == HAL_OK) {
+	      joystick_x = HAL_ADC_GetValue(&hadc2);
 	  } else {
-		  cur_val = SECOND_PIX(packed_buff[i / 2]);
+	      joystick_x = 2000; // Default value if read fails
 	  }
 
-	  // Find how many times `cur_val` repeats
-	  while ((i + 1) < (IMG_ROWS * IMG_COLS) && count < 15 ) { // Check next pixel
-		  uint8_t next_val;
-		  if ((i + 1) % 2 == 0) {
-			  next_val = FIRST_PIX(packed_buff[(i + 1) / 2]);
-		  } else {
-			  next_val = SECOND_PIX(packed_buff[(i + 1) / 2]);
-		  }
-
-		  if (next_val != cur_val) break; // Stop if different
-
-		  count++; // Increase repetition count
-		  i++; // Move to next pixel
+	  HAL_ADC_Start(&hadc3);
+	  if (HAL_ADC_PollForConversion(&hadc3, 10) == HAL_OK) {
+	      joystick_y = HAL_ADC_GetValue(&hadc3);
+	  } else {
+	      joystick_y = 2000; // Default value if read fails
 	  }
 
-	  // Store encoded value
-	  tx_buff[tx_buff_len++] = (cur_val << 4) | (count & 0xF);
-	  i++; // Move to the next pixel
+	  // Format and send via UART5 (use snprintf for safety)
+	  int msg_len = snprintf(cmdBuffer, sizeof(cmdBuffer), "%d,%d\n", joystick_x, joystick_y);
+	  if (msg_len > 0) {
+	      HAL_UART_Transmit(&huart5, (uint8_t*)cmdBuffer, msg_len, 100); // Send only actual message length
+	  }
+
+	  // Debug output via UART3
+	  msg_len = snprintf(cmdBuffer, sizeof(cmdBuffer), "values x: %d, y: %d\r\n", joystick_x, joystick_y);
+	  if (msg_len > 0) {
+	      HAL_UART_Transmit(&huart3, (uint8_t*)cmdBuffer, msg_len, 100); // Send only actual message length
+	  }
+
+	  HAL_Delay(50); // Control sampling rate
+    /* USER CODE BEGIN 3 */
   }
-  //implement RLE
-
-  // Load the END suffix message to the end of the message.
-  for (int i = 0; i < sizeof(SUFFIX) - 1; i++) {
-    tx_buff[tx_buff_len++] = SUFFIX[i];
-  }
-
-//  for (int i = 0; i < tx_buff_len; i++) {
-//	  sprintf(msg, "%02x\r\n", tx_buff[i]);  // Print as hex (adjust format if needed)
-//	  print_msg(msg);
-//  }
-
-  // Once the data is copied into the buffer, call the function to send it via UART.
-  uart_send_bin(tx_buff, tx_buff_len);
-  uart_send_bin3(tx_buff, tx_buff_len);
-
-
-}
-
-void generate_checkerboard() {
-    for (int y = 0; y < IMG_ROWS; y++) {
-        for (int x = 0; x < IMG_COLS; x++) {
-            // Determine if the pixel belongs to a "white" or "black" square
-            int square_x = x / SQUARE_SIZE;
-            int square_y = y / SQUARE_SIZE;
-            if ((square_x + square_y) % 2 == 0) {
-                frame[y * IMG_COLS + x] = 0xFFFF;  // White
-            } else {
-                frame[y * IMG_COLS + x] = 0x0000;  // Black
-            }
-        }
-    }
-}
-
-
-
-HAL_StatusTypeDef print_msg(char * msg) {
-  return HAL_UART_Transmit_DMA(&huart3, (uint8_t *)msg, strlen(msg));
-}
-
-HAL_StatusTypeDef uart_send_bin(uint8_t * buff, unsigned int len) {
-  return HAL_UART_Transmit_DMA(&huart5, (uint8_t *)buff, len);
-}
-
-HAL_StatusTypeDef uart_send_bin3(uint8_t * buff, unsigned int len) {
-  return HAL_UART_Transmit_DMA(&huart3, (uint8_t *)buff, len);
+  /* USER CODE END 3 */
 }
 
 /**
@@ -504,142 +330,6 @@ static void MX_ADC3_Init(void)
 }
 
 /**
-  * @brief DCMI Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_DCMI_Init(void)
-{
-
-  /* USER CODE BEGIN DCMI_Init 0 */
-
-  /* USER CODE END DCMI_Init 0 */
-
-  /* USER CODE BEGIN DCMI_Init 1 */
-
-  /* USER CODE END DCMI_Init 1 */
-  hdcmi.Instance = DCMI;
-  hdcmi.Init.SynchroMode = DCMI_SYNCHRO_HARDWARE;
-  hdcmi.Init.PCKPolarity = DCMI_PCKPOLARITY_RISING;
-  hdcmi.Init.VSPolarity = DCMI_VSPOLARITY_HIGH;
-  hdcmi.Init.HSPolarity = DCMI_HSPOLARITY_LOW;
-  hdcmi.Init.CaptureRate = DCMI_CR_ALL_FRAME;
-  hdcmi.Init.ExtendedDataMode = DCMI_EXTEND_DATA_8B;
-  hdcmi.Init.JPEGMode = DCMI_JPEG_DISABLE;
-  hdcmi.Init.ByteSelectMode = DCMI_BSM_ALL;
-  hdcmi.Init.ByteSelectStart = DCMI_OEBS_ODD;
-  hdcmi.Init.LineSelectMode = DCMI_LSM_ALL;
-  hdcmi.Init.LineSelectStart = DCMI_OELS_ODD;
-  if (HAL_DCMI_Init(&hdcmi) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN DCMI_Init 2 */
-
-  /* USER CODE END DCMI_Init 2 */
-
-}
-
-/**
-  * @brief I2C2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_I2C2_Init(void)
-{
-
-  /* USER CODE BEGIN I2C2_Init 0 */
-
-  /* USER CODE END I2C2_Init 0 */
-
-  /* USER CODE BEGIN I2C2_Init 1 */
-
-  /* USER CODE END I2C2_Init 1 */
-  hi2c2.Instance = I2C2;
-  hi2c2.Init.ClockSpeed = 100000;
-  hi2c2.Init.DutyCycle = I2C_DUTYCYCLE_2;
-  hi2c2.Init.OwnAddress1 = 0;
-  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c2.Init.OwnAddress2 = 0;
-  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN I2C2_Init 2 */
-
-  /* USER CODE END I2C2_Init 2 */
-
-}
-
-/**
-  * @brief TIM1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM1_Init(void)
-{
-
-  /* USER CODE BEGIN TIM1_Init 0 */
-
-  /* USER CODE END TIM1_Init 0 */
-
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
-  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
-
-  /* USER CODE BEGIN TIM1_Init 1 */
-
-  /* USER CODE END TIM1_Init 1 */
-  htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 0;
-  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 14;
-  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim1.Init.RepetitionCounter = 0;
-  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 10;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
-  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
-  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
-  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
-  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-  sBreakDeadTimeConfig.DeadTime = 0;
-  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
-  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
-  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
-  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM1_Init 2 */
-
-  /* USER CODE END TIM1_Init 2 */
-  HAL_TIM_MspPostInit(&htim1);
-
-}
-
-/**
   * @brief TIM2 Initialization Function
   * @param None
   * @retval None
@@ -660,9 +350,9 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 1679999;
+  htim2.Init.Period = 4294967295;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
@@ -709,9 +399,9 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 4199;
+  htim3.Init.Period = 65535;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
   {
     Error_Handler();
@@ -881,29 +571,6 @@ static void MX_USB_OTG_FS_PCD_Init(void)
 }
 
 /**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
-  __HAL_RCC_DMA2_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Stream3_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream3_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream3_IRQn);
-  /* DMA1_Stream7_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream7_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream7_IRQn);
-  /* DMA2_Stream1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA2_Stream1_IRQn);
-
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -911,16 +578,16 @@ static void MX_DMA_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+
+  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOG_CLK_ENABLE();
 
@@ -966,8 +633,9 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(USB_OverCurrent_GPIO_Port, &GPIO_InitStruct);
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
