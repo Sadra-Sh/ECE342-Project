@@ -44,6 +44,12 @@
 #define IMG_COLS  174
 #define IMG_ROWS 144
 #define SQUARE_SIZE 4
+#define RX_BUFFER_SIZE 100
+uint8_t rxBuffer[RX_BUFFER_SIZE];  // Buffer to store received data
+uint8_t rxIndex = 0;               // Index for tracking received data
+uint8_t rxData;
+int dataReady = 0;
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -65,8 +71,9 @@ UART_HandleTypeDef huart3;
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
-volatile uint16_t joystick_y = 0; // Stores Y-axis ADC value
-volatile uint16_t joystick_x = 0;
+volatile uint16_t joystick_y = 2000; // Stores Y-axis ADC value
+volatile uint16_t joystick_x = 2000;
+uint8_t byte;
 
 uint32_t map_value(uint32_t x, uint32_t in_min, uint32_t in_max, uint32_t out_min, uint32_t out_max) {
   // Function needs to work even if the out_min and out_max are swapped, but it needs to do it so that as x increases the output decreases
@@ -151,159 +158,184 @@ int main(void)
   char msg2[4];
   char cmdBuffer[255];
   int len = 0;
-  uint8_t byte;
-  int x = 0;
-  int y = 0;
+
 
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-//  HAL_UART_Transmit(&huart5, (uint8_t*)"ready\n", 6, 100);
-//  while(byte != '\n'){
-//	  HAL_StatusTypeDef status = HAL_UART_Receive(&huart5, (uint8_t*)&byte, 1, 10000);
-//	  if (status == HAL_OK)
-//  		  HAL_UART_Transmit(&huart3, (uint8_t*)&byte, 1, 100);
-//
-////  		  byte = 0;
-////  		  HAL_Delay(100);
-////  		  HAL_UART_Transmit(&huart5, (uint8_t*)"ready\n", 6, 100);
-//
-//  	}
+  HAL_UART_Transmit(&huart5, (uint8_t*)"ready\n", 6, 100);
+  HAL_UART_Receive_IT(&huart5, &rxData, 1);
+
   while (1)
   {
     /* USER CODE END WHILE */
-	  memset(cmdBuffer, 0, sizeof(cmdBuffer));  // Clear buffer
-
-	  HAL_UART_Transmit(&huart5, (uint8_t*)"ready\n", 6, 100);
-	  HAL_Delay(50);
-
-	  int x = 2000, y = 2000; // Default values
-
-	  HAL_StatusTypeDef status = HAL_UART_Receive(&huart5, (uint8_t*)&byte, 1, 10000);
-	  while(byte != '\n'){
-	  	  HAL_StatusTypeDef status = HAL_UART_Receive(&huart5, (uint8_t*)&byte, 1, 10000);
-	  	  if (status == HAL_OK)
-	    		  HAL_UART_Transmit(&huart3, (uint8_t*)&byte, 1, 100);
-	  
-	  
-	    	}
+	  if(dataReady == 1){
+		  dataReady = 0;
+//		  HAL_UART_Transmit(&huart3, (uint8_t*)msg, sizeof(msg), 100);
 
 
-	  HAL_StatusTypeDef status = HAL_UART_Transmit(&huart3, (uint8_t*)cmdBuffer, strlen(cmdBuffer), 500); // Send only valid data
+		  int i = 0;
+		  int x = 0, y = 0;
 
-	  if (status == HAL_OK)
-	  {
-		   cmdBuffer[strcspn(cmdBuffer, "\n")] = '\0'; // Trim newlines (handles both \r and \n)
-	      char* comma = strchr(cmdBuffer, ',');
-	      char* newline = strchr(cmdBuffer, '\n');
+		  // Parse x (before comma)
+		  while (msg[i] != ',' && msg[i] != '\0') {
+			  if (msg[i] >= '0' && msg[i] <= '9') {  // Check if it's a digit
+				  x = x * 10 + (msg[i] - '0');  // Build the number digit by digit
+			  }
+			  i++;
+		  }
 
-	      if (comma && (newline == NULL || newline > comma))
-	      {
-	          *comma = '\0';  // Null-terminate the X portion
-	          x = atoi(cmdBuffer);
-	          y = atoi(comma + 1);
-	      }
+		  // Skip the comma
+		  if (msg[i] == ',') {
+			  i++;
+		  }
 
-	      // Debug output
-	      sprintf(msg, "x:%d, y:%d\r\n", x, y);
-	      HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
+		  // Parse y (after comma)
+		  while (msg[i] != '\0') {
+			  if (msg[i] >= '0' && msg[i] <= '9') {  // Check if it's a digit
+				  y = y * 10 + (msg[i] - '0');  // Build the number digit by digit
+			  }
+			  i++;
+		  }
 
-	      joystick_y = (uint16_t)y;
-	      joystick_x = (uint16_t)x;
-	  }
-	  else
-	  {
-	      joystick_y = 2000;
-	      joystick_x = 2000;
+		  	// Store in global variables
+		  	joystick_x = (uint16_t)x;
+		  	joystick_y = (uint16_t)y;
+		  	sprintf(msg, "x: %u, y: %u\r\n", joystick_x, joystick_y);
+		  	 HAL_UART_Transmit(&huart3, (uint8_t*)msg, sizeof(msg), 100);
+		  	 HAL_Delay(20);
+
+		  HAL_UART_Transmit(&huart5, (uint8_t*)"ready\n", 6, 100);
+
 	  }
 
 
-	 if (joystick_y > 2020) {
-	   // Joystick pushed forward
+	  if (joystick_y > 2020) {
+	  	   HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_SET);
 
-	   // Set DRIVING MOTORS direction: Forward
-	   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_SET);  // IN1A = 1
+	  	   // Joystick pushed forward
 
-	   uint32_t driving_pwm_duty = map_value(joystick_y, 2000, 4096, 0, htim3.Init.Period);
+	  	   // Set DRIVING MOTORS direction: Forward
+	  	   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_SET);  // IN1A = 1
 
-	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, driving_pwm_duty); // DRIVE MOTOR ENABLE
+	  	   uint32_t driving_pwm_duty = map_value(joystick_y, 2000, 4096, 0, htim3.Init.Period);
 
-	   len = sprintf(msg, "Positive drive_pwm: %u | ", driving_pwm_duty);
-  //	   print_msg(msg);
+	  	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, driving_pwm_duty); // DRIVE MOTOR ENABLE
 
-	 }
-	 else if (joystick_y < 1900) {
-	   // Joystick pushed backward
+//	  	   len = sprintf(msg, "Positive drive_pwm: %u | ", driving_pwm_duty);
+	    //	   print_msg(msg);
 
-	   // Set DRIVING MOTORS direction: Backward
-	   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_RESET);  // IN1A = 0
+	  	 }
+	  	 else if (joystick_y < 1900) {
+	  	   // Joystick pushed backward
 
-	   uint32_t driving_pwm_duty = map_value(joystick_y, 0, 2000, htim3.Init.Period, 0);
-	   // uint32_t pwm_duty = htim3.Init.Period - 1;
+	  	   // Set DRIVING MOTORS direction: Backward
+	  	   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_RESET);  // IN1A = 0
 
-	   HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_SET);
+	  	   uint32_t driving_pwm_duty = map_value(joystick_y, 0, 2000, htim3.Init.Period, 0);
+	  	   // uint32_t pwm_duty = htim3.Init.Period - 1;
 
-	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, driving_pwm_duty); // DRIVE MOTOR ENABLE
+	  	   HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
 
-	   len = sprintf(msg, "Negative drive_pwm: %u\r\n", driving_pwm_duty);
-  //	   print_msg(msg);
-	 }
-	 else {
-	   // Joystick in neutral position
-	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0); // Motor 1 stop
-	 }
+	  	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, driving_pwm_duty); // DRIVE MOTOR ENABLE
 
-	 ////////////////////////////////////////////////////////////////// JOYSTICK-X Implementation:
-	 if (joystick_x > 2020) {
-	   // Joystick pushed forward
-	   // SET TURNING MOTORS direction: RIGHT???
-	   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_12, GPIO_PIN_RESET); // IN2A = 0
+//	  	   len = sprintf(msg, "Negative drive_pwm: %u\r\n", driving_pwm_duty);
+	    //	   print_msg(msg);
+	  	 }
+	  	 else {
+	  	   // Joystick in neutral position
+	  	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0); // Motor 1 stop
+	  	   HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_SET);
+	  	   HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
 
-	   uint32_t turning_pwm_duty = map_value(joystick_x, 2000, 4096, 0, htim3.Init.Period);
-	   // uint32_t pwm_duty = htim3.Init.Period - 1;
-	   // HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+	  	 }
 
-	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, turning_pwm_duty); // TURN MOTOR ENABLE
+	  	 ////////////////////////////////////////////////////////////////// JOYSTICK-X Implementation:
+	  	 if (joystick_x > 2020) {
+	  	   // Joystick pushed forward
+	  	   // SET TURNING MOTORS direction: RIGHT???
+	  	   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_12, GPIO_PIN_RESET); // IN2A = 0
 
-	   len = sprintf(msg, "Positive TURN_PWM: %u | ", turning_pwm_duty);
-  //	   print_msg(msg);
+	  	   uint32_t turning_pwm_duty = map_value(joystick_x, 2000, 4096, 0, htim3.Init.Period);
+	  	   // uint32_t pwm_duty = htim3.Init.Period - 1;
+	  	   // HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
 
-	 }
-	 else if (joystick_x < 1900){
-	   // Joystick pushed backward
-	   // SET TURNING MOTORS direction: LEFT???
-	   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_12, GPIO_PIN_SET); // IN2A = 1
+	  	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, turning_pwm_duty); // TURN MOTOR ENABLE
 
-	   uint32_t turning_pwm_duty = map_value(joystick_x, 0, 2000, htim3.Init.Period, 0);
-	   // uint32_t pwm_duty = htim3.Init.Period - 1;
-	   // HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+//	  	   len = sprintf(msg, "Positive TURN_PWM: %u | ", turning_pwm_duty);
+	    //	   print_msg(msg);
 
-	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, turning_pwm_duty); // TURN MOTOR ENABLE
+	  	 }
+	  	 else if (joystick_x < 1900){
+	  	   // Joystick pushed backward
+	  	   // SET TURNING MOTORS direction: LEFT???
+	  	   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_12, GPIO_PIN_SET); // IN2A = 1
 
-	   len = sprintf(msg, "Negative TURN_PWM: %u\r\n", turning_pwm_duty);
-  //	   print_msg(msg);
-	 }
-	 else {
-	   // Joystick in neutral position
-	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0); // STOP TURNING
-	 }
+	  	   uint32_t turning_pwm_duty = map_value(joystick_x, 0, 2000, htim3.Init.Period, 0);
+	  	   // uint32_t pwm_duty = htim3.Init.Period - 1;
+	  	   // HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+
+	  	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, turning_pwm_duty); // TURN MOTOR ENABLE
+
+//	  	   len = sprintf(msg, "Negative TURN_PWM: %u\r\n", turning_pwm_duty);
+	    //	   print_msg(msg);
+	  	 }
+	  	 else {
+	  	   // Joystick in neutral position
+	  	   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0); // STOP TURNING
+	  	 }
 
 
 
-	 /////////////////////////////////////////////////// Use PWM 2 to control a 9g Arduino servo motor
-	 // Map joystick value to PWM duty cycle for the servo motor
-	 HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
+	  	 /////////////////////////////////////////////////// Use PWM 2 to control a 9g Arduino servo motor
+	  	 // Map joystick value to PWM duty cycle for the servo motor
+	  	 HAL_GPIO_WritePin(LD1_GPIO_Port, LD1_Pin, GPIO_PIN_RESET);
 
-	 uint32_t servo_pwm_duty = map_value(joystick_y, 0, 4095, htim2.Init.Period/20, 2*htim2.Init.Period/20); // Assuming 500-2500us pulse width for 0-180 degrees
-	 __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, servo_pwm_duty);
+	  	 uint32_t servo_pwm_duty = map_value(joystick_y, 0, 4095, htim2.Init.Period/20, 2*htim2.Init.Period/20); // Assuming 500-2500us pulse width for 0-180 degrees
+	  	 __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, servo_pwm_duty);
+
+
+
+
 
 
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
+
+
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == UART5)  // Check if the interrupt is from UART5
+  {
+    if (rxData == '\n') // End of string detected (assuming newline-terminated strings)
+    {
+      rxBuffer[rxIndex] = '\0'; // Null-terminate the string
+      rxIndex = 0;  // Reset index for next reception
+
+      sprintf(msg, "%s\r\n", rxBuffer);
+//      HAL_UART_Transmit(&huart3, (uint8_t*)msg, strlen(msg), 100);
+      dataReady = 1;
+
+    }
+    else
+    {
+      if (rxIndex < RX_BUFFER_SIZE - 1) // Prevent buffer overflow
+      {
+        rxBuffer[rxIndex++] = rxData; // Store received byte
+      }
+    }
+
+    // Restart the interrupt-based reception for next byte
+    HAL_UART_Receive_IT(&huart5, &rxData, 1);
+
+  }
+}
+
 
 /**
   * @brief System Clock Configuration
