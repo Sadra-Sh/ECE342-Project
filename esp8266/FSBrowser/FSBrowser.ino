@@ -14,11 +14,11 @@ bool readyToReceive = false;
 
 void setup() {
   Serial.begin(115200);
-  Serial.println();
+  // Serial.println();
 
   WiFi.begin(STASSID, STAPSK);
   // Serial.print("Connecting to ");
-  Serial.print(STASSID);
+  // Serial.print(STASSID);
 
   while (WiFi.status() != WL_CONNECTED) {
     // Serial.print('.');
@@ -26,11 +26,11 @@ void setup() {
   }
 
   // Serial.println("\nConnected! IP address: ");
-  Serial.println(WiFi.localIP());
+  // Serial.println(WiFi.localIP());
 
   Udp.begin(PORT);
   // Serial.print("Listening on UDP port: ");
-  Serial.println(PORT);
+  // Serial.println(PORT);
 }
 
 void loop() {
