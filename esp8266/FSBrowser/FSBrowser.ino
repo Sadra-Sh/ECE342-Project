@@ -1,51 +1,51 @@
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 
-#ifndef STASSID
-#define STASSID "SadrasIphone"
-#define STAPSK "Helloooo"
-#endif
+// WiFi credentials
+const char* ssid = "SadrasIphone";
+const char* password = "Helloooo";
 
-#define PORT 4210
-IPAddress remoteIP(172, 20, 10, 2);
+// Remote IP and port (where data is sent)
+IPAddress remoteIP(172, 20, 10, 3); // Replace with target IP
+const uint16_t remotePort = 4210;   // Replace with target port
+
 WiFiUDP Udp;
-char packet[255];
-bool readyToReceive = false;
 
 void setup() {
   Serial.begin(115200);
-  // Serial.println();
+  delay(10);
 
-  WiFi.begin(STASSID, STAPSK);
-  // Serial.print("Connecting to ");
-  // Serial.print(STASSID);
+  Serial.println("\nConnecting to WiFi...");
+  WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
-    // Serial.print('.');
     delay(500);
+    Serial.print(".");
   }
 
-  // Serial.println("\nConnected! IP address: ");
-  // Serial.println(WiFi.localIP());
-
-  Udp.begin(PORT);
-  // Serial.print("Listening on UDP port: ");
-  // Serial.println(PORT);
+  Serial.println("\nWiFi connected!");
+  Serial.print("IP: ");
+  Serial.println(WiFi.localIP());
+  Serial.println("Ready to send UDP packets...");
+  Serial.println("Type a message and press Enter to send.");
 }
 
 void loop() {
-  while(Udp.parsePacket() > 0){
-    int len = Udp.read(packet, sizeof(packet) - 1);
-    if (len > 0) {
-      packet[len] = '\0'; // Null-terminate string
-    }
-  }
-  
   if (Serial.available() > 0) {
-    String input = Serial.readStringUntil('\n');
-    input.trim(); // remove any trailing newline/whitespace
-    if (input == "ready") {
-      Serial.println(packet);
+    String message = Serial.readStringUntil('\n');
+    message.trim(); // Remove extra whitespace/newline
+
+    if (message.length() > 0) {
+      Serial.print("Sending: ");
+      Serial.println(message);
+
+      // Send UDP packet
+      Udp.beginPacket(remoteIP, remotePort);
+      Udp.write(message.c_str());
+      Udp.endPacket();
+
+      Serial.println("Message sent!");
     }
   }
+  delay(10); // Small delay to prevent watchdog issues
 }
